@@ -3,7 +3,7 @@
 [![bundle-size](https://img.shields.io/bundlephobia/min/@greencoast/djs-extended-data-provider-level)](https://www.npmjs.com/package/@greencoast/djs-extended-data-provider-level)
 [![node-version](https://img.shields.io/node/v/@greencoast/djs-extended-data-provider-level?logo=Node.js&color=green)](https://www.npmjs.com/package/@greencoast/djs-extended-data-provider-level)
 [![version](https://img.shields.io/npm/v/@greencoast/djs-extended-data-provider-level?logo=npm)](https://www.npmjs.com/package/@greencoast/djs-extended-data-provider-level)
-[![djs-extended-version](https://img.shields.io/npm/dependency-version/@greencoast/djs-extended-data-provider-level/peer/@greencoast/discord.js-extended?logo=npm)](https://www.npmjs.com/package/@greencoast/djs-extended-data-provider-level)
+[![djs-extended-version](https://img.shields.io/npm/dependency-version/@greencoast/djs-extended-data-provider-level/peer/@greencoast/discord.js-extended?logo=npm)](https://www.npmjs.com/package/@greencoast/discord.js-extended)
 [![downloads-week](https://img.shields.io/npm/dw/@greencoast/djs-extended-data-provider-level?logo=npm)](https://www.npmjs.com/package/@greencoast/djs-extended-data-provider-level)
 [![downloads-total](https://img.shields.io/npm/dt/@greencoast/djs-extended-data-provider-level?logo=npm)](https://www.npmjs.com/package/@greencoast/djs-extended-data-provider-level)
 
