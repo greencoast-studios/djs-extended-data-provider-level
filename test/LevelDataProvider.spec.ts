@@ -1,429 +1,268 @@
 import { LevelDataProvider } from '../src';
-// import { Guild } from 'discord.js';
-import { ExtendedClient } from '@greencoast/discord.js-extended';
+import { Guild } from 'discord.js';
+import { ExtendedClient, ExtendedClientEvents } from '@greencoast/discord.js-extended';
+
+jest.mock('level');
 
 const client = new ExtendedClient({ debug: true, intents: [] });
+const clientEventMocks: Partial<Record<keyof ExtendedClientEvents, (...args: any[]) => void>> = {
+  dataProviderInit: jest.fn(),
+  dataProviderDestroy: jest.fn(),
+  dataProviderClear: jest.fn()
+};
 
-const dataProviderClearMock = jest.fn();
-client.on('dataProviderAdd', dataProviderClearMock);
+Object.entries(clientEventMocks).forEach(([event, fn]) => client.on(event, fn));
 
-describe('Test', function () {
-  const emitSpy = jest.spyOn(client, 'emit');
-
+describe('LevelDataProvider', () => {
   let provider: LevelDataProvider;
 
   beforeEach(() => {
     provider = new LevelDataProvider(client, 'path');
-
-    emitSpy.mockClear();
   });
 
-  it('should emit a dataProviderClear event.', async () => {
-    expect.assertions(1);
+  describe('init()', () => {
+    it('should resolve the provider object.', async () => {
+      const result = await provider.init();
+      expect(result).toBe(provider);
+    });
 
-    await provider.clearGlobal();
-    expect(dataProviderClearMock).toHaveBeenCalled();
+    it('should ready up the db.', async () => {
+      await provider.init();
+      expect(provider['db'].status).toBe('open');
+    });
+
+    it('should emit a dataProviderInit event with the provider.', async () => {
+      await provider.init();
+      expect(clientEventMocks.dataProviderInit).toHaveBeenCalledWith(provider);
+    });
+  });
+
+  describe('destroy()', () => {
+    beforeEach(async () => {
+      await provider.init();
+    });
+
+    it('should close the db.', async () => {
+      await provider.destroy();
+      expect(provider['db'].status).toBe('closed');
+    });
+
+    it('should emit a dataProviderDestroy event with the provider.', async () => {
+      await provider.destroy();
+      expect(clientEventMocks.dataProviderDestroy).toHaveBeenCalledWith(provider);
+    });
+  });
+
+  describe('Data methods:', () => {
+    const guild = { id: '123' } as unknown as Guild;
+
+    const data = {
+      key1: 'value1',
+      key2: { val: 'value2' },
+      key3: [1, 2, 3],
+      key4: false,
+      key5: null
+    };
+
+    beforeEach(async () => {
+      await provider.init();
+    });
+
+    describe('get()', () => {
+      beforeEach(async () => {
+        for (const [key, value] of Object.entries(data)) {
+          await provider.set(guild, key, value);
+        }
+      });
+
+      it('should resolve the value stored.', async () => {
+        for (const [key, value] of Object.entries(data)) {
+          expect(await provider.get(guild, key)).toStrictEqual(value);
+        }
+      });
+
+      it('should resolve with the default value if the key was not found.', async () => {
+        const defaultValue = 'default';
+        expect(await provider.get(guild, 'unknown', defaultValue)).toBe(defaultValue);
+      });
+
+      it('should resolve undefined if the key was not found and no default value is given.', async () => {
+        expect(await provider.get(guild, 'unknown')).toBeUndefined();
+      });
+    });
+
+    describe('getGlobal()', () => {
+      const [key, value] = ['globalKey', 'globalValue'];
+
+      beforeEach(async () => {
+        await provider.setGlobal(key, value);
+      });
+
+      it('should resolve the value stored.', async () => {
+        expect(await provider.getGlobal(key)).toBe(value);
+      });
+
+      it('should resolve with the default value if the key was not found.', async () => {
+        const defaultValue = 'default';
+        expect(await provider.getGlobal('unknown', defaultValue)).toBe(defaultValue);
+      });
+
+      it('should resolve undefined if the key was not found and no default value is given.', async () => {
+        expect(await provider.getGlobal('unknown')).toBeUndefined();
+      });
+    });
+
+    describe('set()', () => {
+      const [key, value] = ['myKey', 'myValue'];
+
+      it('should set new data.', async () => {
+        await provider.set(guild, key, value);
+        expect(await provider.get(guild, key)).toBe(value);
+      });
+
+      it('should replace old data.', async () => {
+        const newValue = 'myOtherValue';
+
+        await provider.set(guild, key, value);
+        await provider.set(guild, key, newValue);
+
+        expect(await provider.get(guild, key)).toBe(newValue);
+      });
+
+      it('should reject a TypeError if data provided is undefined.', async () => {
+        await expect(provider.set(guild, key, undefined)).rejects.toBeInstanceOf(TypeError);
+      });
+    });
+
+    describe('setGlobal()', () => {
+      const [key, value] = ['myKey', 'myValue'];
+
+      it('should set new data.', async () => {
+        await provider.setGlobal(key, value);
+        expect(await provider.getGlobal(key)).toBe(value);
+      });
+
+      it('should replace old data.', async () => {
+        const newValue = 'myOtherValue';
+
+        await provider.setGlobal(key, value);
+        await provider.setGlobal(key, newValue);
+
+        expect(await provider.getGlobal(key)).toBe(newValue);
+      });
+
+      it('should reject a TypeError if data provided is undefined.', async () => {
+        await expect(provider.setGlobal(key, undefined)).rejects.toBeInstanceOf(TypeError);
+      });
+    });
+
+    describe('delete()', () => {
+      const [key, value] = ['myKey', 'myValue'];
+
+      beforeEach(async () => {
+        await provider.set(guild, key, value);
+      });
+
+      it('should delete existing data.', async () => {
+        await provider.delete(guild, key);
+        expect(await provider.get(guild, key)).toBeUndefined();
+      });
+
+      it('should resolve the deleted data.', async () => {
+        expect(await provider.delete(guild, key)).toBe(value);
+      });
+
+      it('should resolve undefined if the key is not found.', async () => {
+        expect(await provider.delete(guild, 'unknown')).toBeUndefined();
+      });
+    });
+
+    describe('deleteGlobal()', () => {
+      const [key, value] = ['myKey', 'myValue'];
+
+      beforeEach(async () => {
+        await provider.setGlobal(key, value);
+      });
+
+      it('should delete existing data.', async () => {
+        await provider.deleteGlobal(key);
+        expect(await provider.getGlobal(key)).toBeUndefined();
+      });
+
+      it('should resolve the deleted data.', async () => {
+        expect(await provider.deleteGlobal(key)).toBe(value);
+      });
+
+      it('should resolve undefined if the key is not found.', async () => {
+        expect(await provider.deleteGlobal('unknown')).toBeUndefined();
+      });
+    });
+
+    describe('clear()', () => {
+      const [globalKey, globalValue] = ['myKey', 'myValue'];
+
+      beforeEach(async () => {
+        for (const [key, value] of Object.entries(data)) {
+          await provider.set(guild, key, value);
+        }
+        await provider.setGlobal(globalKey, globalValue);
+      });
+
+      it('should delete all entries.', async () => {
+        await provider.clear(guild);
+
+        for (const key of Object.keys(data)) {
+          expect(await provider.get(guild, key)).toBeUndefined();
+        }
+      });
+
+      it('should not modify the rest of the data.', async () => {
+        await provider.clear(guild);
+        expect(await provider.getGlobal(globalKey)).toBe(globalValue);
+      });
+
+      it('should emit a dataProviderClear event with the cleared guild.', async () => {
+        await provider.clear(guild);
+        expect(clientEventMocks.dataProviderClear).toHaveBeenCalledWith(guild);
+      });
+    });
+
+    describe('clearGlobal()', () => {
+      const globalData = {
+        key1: 'value1',
+        key2: 123,
+        key3: true
+      };
+
+      beforeEach(async () => {
+        for (const [key, value] of Object.entries(data)) {
+          await provider.set(guild, key, value);
+        }
+        for (const [key, value] of Object.entries(globalData)) {
+          await provider.setGlobal(key, value);
+        }
+      });
+
+      it('should delete all entries.', async () => {
+        await provider.clearGlobal();
+
+        for (const key of Object.keys(globalData)) {
+          expect(await provider.getGlobal(key)).toBeUndefined();
+        }
+      });
+
+      it('should not modify the rest of the data.', async () => {
+        await provider.clearGlobal();
+
+        for (const [key, value] of Object.entries(data)) {
+          expect(await provider.get(guild, key)).toStrictEqual(value);
+        }
+      });
+
+      it('should emit a dataProviderClear event with null.', async () => {
+        await provider.clearGlobal();
+        expect(clientEventMocks.dataProviderClear).toHaveBeenCalledWith(null);
+      });
+    });
   });
 });
-
-// describe('LevelDataProvider', () => {
-//   const emitSpy = jest.spyOn(client, 'emit');
-//
-//   let provider: LevelDataProvider;
-//
-//   beforeEach(() => {
-//     provider = new LevelDataProvider(client, 'path');
-//
-//     emitSpy.mockClear();
-//   });
-//
-//   describe('init()', () => {
-//     it('should resolve the provider object.', () => {
-//       expect.assertions(1);
-//
-//       return provider.init()
-//         .then((resolved) => {
-//           expect(resolved).toBe(provider);
-//         });
-//     });
-//
-//     it('should set the db.', () => {
-//       expect.assertions(1);
-//
-//       return provider.init()
-//         .then(() => {
-//           expect(provider['db']).toBeInstanceOf(level.Level);
-//         });
-//     });
-//
-//     it('should emit a dataProviderInit event.', () => {
-//       expect.assertions(1);
-//
-//       return provider.init()
-//         .then(() => {
-//           expect(client.emit).toHaveBeenCalledWith('dataProviderInit', provider);
-//         });
-//     });
-//
-//     it('should reject if an error comes up.', () => {
-//       const expectedError = new Error('oops');
-//       mockedLevel.mockImplementationOnce((_str: string, _obj: any, fn: any) => fn(expectedError));
-//
-//       expect.assertions(1);
-//
-//       return provider.init()
-//         .catch((error) => {
-//           expect(error).toBe(expectedError);
-//         });
-//     });
-//
-//     it('should not re-initialize the provider if it is ready.', () => {
-//       expect.assertions(1);
-//
-//       return provider.init()
-//         .then(() => {
-//           mockedLevel.mockClear();
-//           return provider.init();
-//         })
-//         .then(() => {
-//           expect(mockedLevel).not.toHaveBeenCalled();
-//         });
-//     });
-//   });
-//
-//   describe('destroy()', () => {
-//     beforeEach(async () => {
-//       await provider.init();
-//     });
-//
-//     it('should resolve if there is no db initialized.', () => {
-//       provider = new LevelDataProvider(client, 'path');
-//
-//       expect.assertions(1);
-//
-//       return provider.destroy()
-//         .then(() => {
-//           expect(provider['db']).toBeNull();
-//         });
-//     });
-//
-//     it('should set the db to null.', () => {
-//       expect.assertions(1);
-//
-//       return provider.destroy()
-//         .then(() => {
-//           expect(provider['db']).toBeNull();
-//         });
-//     });
-//
-//     it('should emit a dataProviderDestroy event.', () => {
-//       expect.assertions(1);
-//
-//       return provider.destroy()
-//         .then(() => {
-//           expect(client.emit).toHaveBeenCalledWith('dataProviderDestroy', provider);
-//         });
-//     });
-//
-//     it('should reject if there was an error.', () => {
-//       const expectedError = new Error('oops');
-//       const closeSpy = jest.spyOn(provider['db'] as any, 'close');
-//       closeSpy.mockImplementation((fn: any) => fn(expectedError));
-//
-//       expect.assertions(1);
-//
-//       return provider.destroy()
-//         .catch((error) => {
-//           expect(error).toBe(expectedError);
-//         });
-//     });
-//   });
-//
-//   describe('Data methods:', () => {
-//     const guild = new GuildMock() as Guild;
-//
-//     const data = [
-//       ['key1', 'value1'],
-//       ['key2', { val: 'value2' }],
-//       ['key3', [1, 2, 3]]
-//     ];
-//
-//     beforeEach(async () => {
-//       await provider.init();
-//
-//       for (const [k, v] of data) {
-//         await provider.set(guild, k as string, v);
-//       }
-//       await provider.setGlobal('globalKey', 'globalValue');
-//     });
-//
-//     describe('get()', () => {
-//       it('should resolve the value stored.', () => {
-//         expect.assertions(3);
-//
-//         return Promise.all(data.map(([k]) => provider.get(guild, k as string)))
-//           .then((resolved) => {
-//             const values = data.map(([, v]) => v);
-//             resolved.forEach((value) => {
-//               expect(values).toContainEqual(value);
-//             });
-//           });
-//       });
-//
-//       it('should resolve with the default value if the key was not found.', () => {
-//         expect.assertions(1);
-//
-//         return provider.get(guild, 'unknown', 'default')
-//           .then((value) => {
-//             expect(value).toBe('default');
-//           });
-//       });
-//
-//       it('should resolve undefined if the key was not found and no default value is given.', () => {
-//         expect.assertions(1);
-//
-//         return provider.get(guild, 'unknown')
-//           .then((value) => {
-//             expect(value).toBeUndefined();
-//           });
-//       });
-//
-//       it('should reject if there was an error.', () => {
-//         const expectedError = new Error('oops');
-//         const getSpy = jest.spyOn(provider['db'] as any, 'get');
-//         getSpy.mockRejectedValue(expectedError);
-//
-//         expect.assertions(1);
-//
-//         return provider.get(guild, 'error')
-//           .catch((error) => {
-//             expect(error).toBe(expectedError);
-//           });
-//       });
-//     });
-//
-//     describe('getGlobal()', () => {
-//       it('should resolve the value stored.', () => {
-//         expect.assertions(1);
-//
-//         return provider.getGlobal('globalKey')
-//           .then((value) => {
-//             expect(value).toBe('globalValue');
-//           });
-//       });
-//
-//       it('should resolve with the default value if the key was not found.', () => {
-//         expect.assertions(1);
-//
-//         return provider.getGlobal('unknown', 'default')
-//           .then((value) => {
-//             expect(value).toBe('default');
-//           });
-//       });
-//
-//       it('should resolve undefined if the key was not found and no default value is given.', () => {
-//         expect.assertions(1);
-//
-//         return provider.getGlobal('unknown')
-//           .then((value) => {
-//             expect(value).toBeUndefined();
-//           });
-//       });
-//
-//       it('should reject if there was an error.', () => {
-//         const expectedError = new Error('oops');
-//         const getSpy = jest.spyOn(provider['db'] as any, 'get');
-//         getSpy.mockRejectedValue(expectedError);
-//
-//         expect.assertions(1);
-//
-//         return provider.getGlobal('error')
-//           .catch((error) => {
-//             expect(error).toBe(expectedError);
-//           });
-//       });
-//     });
-//
-//     describe('set()', () => {
-//       it('should set new data.', () => {
-//         expect.assertions(1);
-//
-//         return provider.set(guild, 'newKey', 'newValue')
-//           .then(() => provider.get(guild, 'newKey'))
-//           .then((value) => {
-//             expect(value).toBe('newValue');
-//           });
-//       });
-//
-//       it('should replace old data.', () => {
-//         expect.assertions(1);
-//
-//         return provider.set(guild, 'key1', 'newValue')
-//           .then(() => provider.get(guild, 'key1'))
-//           .then((value) => {
-//             expect(value).toBe('newValue');
-//           });
-//       });
-//     });
-//
-//     describe('setGlobal()', () => {
-//       it('should set new data.', () => {
-//         expect.assertions(1);
-//
-//         return provider.setGlobal('newKey', 'newValue')
-//           .then(() => provider.getGlobal('newKey'))
-//           .then((value) => {
-//             expect(value).toBe('newValue');
-//           });
-//       });
-//
-//       it('should replace old data.', () => {
-//         expect.assertions(1);
-//
-//         return provider.setGlobal('globalKey', 'newValue')
-//           .then(() => provider.getGlobal('globalKey'))
-//           .then((value) => {
-//             expect(value).toBe('newValue');
-//           });
-//       });
-//     });
-//
-//     describe('delete()', () => {
-//       it('should delete existing data.', () => {
-//         expect.assertions(1);
-//
-//         return provider.delete(guild, 'key1')
-//           .then(() => provider.get(guild, 'key1'))
-//           .then((value) => {
-//             expect(value).toBeUndefined();
-//           });
-//       });
-//
-//       it('should resolve the deleted data.', () => {
-//         expect.assertions(1);
-//
-//         return provider.get(guild, 'key1')
-//           .then((old) => {
-//             return provider.delete(guild, 'key1')
-//               .then((deleted) => {
-//                 expect(deleted).toBe(old);
-//               });
-//           });
-//       });
-//
-//       it('should reject if the key is not found.', () => {
-//         expect.assertions(1);
-//
-//         return provider.delete(guild, 'unknown')
-//           .catch((error) => {
-//             expect(error.name).toBe('NotFoundError');
-//           });
-//       });
-//     });
-//
-//     describe('deleteGlobal()', () => {
-//       it('should delete existing data.', () => {
-//         expect.assertions(1);
-//
-//         return provider.deleteGlobal('globalKey')
-//           .then(() => provider.getGlobal('globalKey'))
-//           .then((value) => {
-//             expect(value).toBeUndefined();
-//           });
-//       });
-//
-//       it('should resolve the deleted data.', () => {
-//         expect.assertions(1);
-//
-//         return provider.getGlobal('globalKey')
-//           .then((old) => {
-//             return provider.deleteGlobal('globalKey')
-//               .then((deleted) => {
-//                 expect(deleted).toBe(old);
-//               });
-//           });
-//       });
-//
-//       it('should reject if the key is not found.', () => {
-//         expect.assertions(1);
-//
-//         return provider.deleteGlobal('unknown')
-//           .catch((error) => {
-//             expect(error.name).toBe('NotFoundError');
-//           });
-//       });
-//     });
-//
-//     describe('clear()', () => {
-//       it('should delete all entries.', () => {
-//         expect.assertions(3);
-//
-//         return provider.clear(guild)
-//           .then(() => {
-//             const keys = data.map(([k]) => k as string);
-//             return Promise.all(keys.map((key) => provider.get(guild, key)));
-//           })
-//           .then((resolved) => {
-//             resolved.forEach((value) => {
-//               expect(value).toBeUndefined();
-//             });
-//           });
-//       });
-//
-//       it('should not modify the rest of the data.', () => {
-//         expect.assertions(1);
-//
-//         return provider.clear(guild)
-//           .then(() => provider.getGlobal('globalKey'))
-//           .then((value) => {
-//             expect(value).toBe('globalValue');
-//           });
-//       });
-//
-//       it('should emit a dataProviderClear event.', () => {
-//         expect.assertions(1);
-//
-//         return provider.clear(guild)
-//           .then(() => {
-//             expect(client.emit).toHaveBeenCalledWith('dataProviderClear', guild);
-//           });
-//       });
-//     });
-//
-//     describe('clearGlobal()', () => {
-//       it('should delete all entries.', () => {
-//         expect.assertions(1);
-//
-//         return provider.clearGlobal()
-//           .then(() => provider.getGlobal('globalKey'))
-//           .then((value) => {
-//             expect(value).toBeUndefined();
-//           });
-//       });
-//
-//       it('should not modify the rest of the data.', () => {
-//         expect.assertions(3);
-//
-//         return provider.clearGlobal()
-//           .then(() => {
-//             return Promise.all(data.map(([k]) => provider.get(guild, k as string)))
-//               .then((resolved) => {
-//                 const values = data.map(([, v]) => v);
-//                 resolved.forEach((value) => {
-//                   expect(values).toContainEqual(value);
-//                 });
-//               });
-//           });
-//       });
-//
-//       it('should emit a dataProviderClear event.', () => {
-//         expect.assertions(1);
-//
-//         return provider.clearGlobal()
-//           .then(() => {
-//             expect(client.emit).toHaveBeenCalledWith('dataProviderClear', null);
-//           });
-//       });
-//     });
-//   });
-// });
