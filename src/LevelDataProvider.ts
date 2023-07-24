@@ -224,7 +224,7 @@ export class LevelDataProvider extends DataProvider implements ClearableDataProv
    * @private
    * @returns A promise that resolves once all data has been deleted.
    */
-  public async _clear(startsWith: string): Promise<void> {
+  private async _clear(startsWith: string): Promise<void> {
     await this.db.clear({
       gt: `${startsWith}:`,
       lte: `${startsWith}${String.fromCharCode(':'.charCodeAt(0) + 1)}`
